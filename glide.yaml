@@ -1,0 +1,6 @@
+package: .
+import:
+- package: gobot.io/x/gobot
+  version: ^1.2.1
+  subpackages:
+  - platforms/raspi
