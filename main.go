@@ -17,6 +17,7 @@ func main() {
 	db := newDropbox(os.Getenv("DROPBOX_CLIENT_ID"), os.Getenv("DROPBOX_ACCESS_TOKEN"))
 
 	folder := os.Getenv("TMP_FOLDER")
+	dropboxFolder := os.Getenv("DROPBOX_FOLDER")
 
 	current := currentFilename(folder)
 	writer, file := newWriter(folder, current)
@@ -25,27 +26,51 @@ func main() {
 
 	fmt.Printf("Starting up - %s\n", current)
 
-	for {
-		// TODO get readings
-		//writer.Write()
+	go uploadPending(folder, current)
 
+	for {
 		filename := currentFilename(folder)
 		if filename != current {
 			writer.Flush()
 			file.Close()
-			go func(filename string) {
-				fmt.Printf("Uploading - %s\n", current)
-				_, err := db.UploadFile(filename, filename, false, "")
-				if err != nil {
-					// TODO retry?
-					fmt.Printf("Couldn't upload - %s\n", err.Error())
-				}
-				os.Remove(filename)
-			}(filename)
+			go upload(current, dropboxFolder, db)
 			current = filename
 			writer, file = newWriter(folder, current)
 		}
+
+		writer.Write(dataFor(capture(pi)))
+
 		time.Sleep(10 * time.Second)
+	}
+}
+func upload(filename string, dropboxFolder string, db *dropbox.Dropbox) {
+	_, name := filepath.Split(filename)
+	dbFilename := filepath.Join(dropboxFolder, name)
+	fmt.Printf("Uploading - %s -> %s\n", filename, dbFilename)
+
+	_, err := db.UploadFile(filename, dbFilename, false, "")
+	if err != nil {
+		// TODO retry?
+		fmt.Printf("Couldn't upload - %s\n", err.Error())
+	}
+	os.Remove(filename)
+}
+
+func uploadPending(folder string, ignoreFile string) {
+	// TODO list pending
+	// TODO upload
+	// TODO delete
+
+}
+
+func capture(adaptor *raspi.Adaptor) Readings {
+	humidity, _ := adaptor.DigitalRead("1")
+	temp, _ := adaptor.DigitalRead("2")
+
+	return Readings{
+		Humidity:    humidity,
+		Temperature: temp,
+		Time:        time.Now(),
 	}
 }
 
@@ -69,6 +94,7 @@ func newWriter(folder string, filename string) (*csv.Writer, *os.File) {
 		}
 		writer := csv.NewWriter(file)
 		writer.Write(headers())
+		writer.Flush()
 
 		return writer, file
 	} else {
@@ -88,7 +114,18 @@ func makeSure(res error) {
 }
 
 func headers() []string {
-	return []string{"humidity", "time" }
+	return []string{"humidity", "temperature", "ambient_light", "noise_level", "movement", "time" }
+}
+
+func dataFor(r Readings) []string {
+	return []string{
+		string(r.Humidity),
+		string(r.Temperature),
+		string(r.AmbientLight),
+		string(r.NoiseLevel),
+		string(r.Movement),
+		r.Time.String(),
+	}
 }
 
 // one file per minute
@@ -99,11 +136,11 @@ func currentFilename(folder string) string {
 	)
 }
 
-//type Readings struct {
-//	Humidity     int
-//	Temperature  int
-//	AmbientLight int
-//	NoiseLevel   int
-//	Movement     int
-//	Time         int64
-//}
+type Readings struct {
+	Humidity     int
+	Temperature  int
+	AmbientLight int
+	NoiseLevel   int
+	Movement     int
+	Time         time.Time
+}
